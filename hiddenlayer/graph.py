@@ -11,7 +11,6 @@ from __future__ import absolute_import, division, print_function
 import os
 import re
 from random import getrandbits
-import inspect
 import numpy as np
 
 
@@ -44,8 +43,7 @@ THEMES = {
 ###########################################################################
 
 def detect_framework(value):
-    # Get all base classes
-    classes = inspect.getmro(value.__class__)
+    classes = (value.__class__,) + value.__class__.__bases__
     for c in classes:
         if c.__module__.startswith("torch"):
             return "torch"
@@ -324,7 +322,6 @@ class Graph():
                  fontcolor=self.theme["font_color"],
                  fontname=self.theme["font_name"],
                  margin=self.theme["margin"],
-                 rankdir="LR",
                  pad=self.theme["padding"])
         dot.attr("node", shape="box", 
                  style="filled", margin="0,0",

@@ -53,9 +53,10 @@ def get_shape(torch_node):
     # https://discuss.pytorch.org/t/node-output-shape-from-trace-graph/24351/2
     # TODO: find a better way to extract output shape
     # TODO: Assuming the node has one output. Update if we encounter a multi-output node.
-    m = re.match(r".*Float\(([\d\s\,]+)\).*", str(next(torch_node.outputs())))
+    m = re.match(r".*Float\(([\d!?\s\,]+)\).*", str(next(torch_node.outputs())))
     if m:
         shape = m.group(1)
+        shape = shape.replace('!', '')
         shape = shape.split(",")
         shape = tuple(map(int, shape))
     else:
@@ -67,18 +68,33 @@ def import_graph(hl_graph, model, args, input_names=None, verbose=False):
     # TODO: add input names to graph
 
     # Run the Pytorch graph to get a trace and generate a graph from it
+    # fixme
     trace, out = torch.jit.get_trace_graph(model, args)
-    torch.onnx._optimize_trace(trace, torch.onnx.OperatorExportTypes.ONNX)
+    torch.onnx._optimize_trace(trace, torch.onnx.OperatorExportTypes.RAW)
     torch_graph = trace.graph()
 
     # Dump list of nodes (DEBUG only)
+    # todo: verbose
     if verbose:
         dump_pytorch_graph(torch_graph)
-
     # Loop through nodes and build HL graph
     for torch_node in torch_graph.nodes():
         # Op
         op = torch_node.kind()
+        # print('op: {}'.format(op))
+        if op in [u'aten::t', u'prim::Constant']:  #
+            continue
+        elif op == u'aten::addmm':
+            op = u'Linear'
+        elif op == u'prim::ListConstruct':
+            op = u'ModuleList'
+        if u'aten::' in op:
+            op = op[6: ]
+        if op.startswith(u'_'):
+            op = op.replace(u'_', u'', 1)
+        op = op.capitalize()
+        # fixme: done
+
         # Parameters
         params = {k: torch_node[k] for k in torch_node.attributeNames()} 
         # Inputs/outputs
@@ -93,6 +109,7 @@ def import_graph(hl_graph, model, args, input_names=None, verbose=False):
         # Add edges
         for target_torch_node in torch_graph.nodes():
             target_inputs = [i.unique() for i in target_torch_node.inputs()]
-            if set(outputs) & set(target_inputs):
+            a = target_torch_node.kind()
+            if (set(outputs) & set(target_inputs)) and target_torch_node.kind():
                 hl_graph.add_edge_by_id(pytorch_id(torch_node), pytorch_id(target_torch_node), shape)
     return hl_graph
